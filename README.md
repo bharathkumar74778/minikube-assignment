@@ -29,13 +29,15 @@ Minikube Configuration
 Minikube Start: 
 Initialize Minikube with minikube start, ensuring it's configured to allocate sufficient resources (CPU, memory) for your applications.
 Deploying the Nginx Ingress Controller
+
 Helm Installation: Use Helm to deploy the Nginx Ingress Controller into the kube-system namespace, enabling traffic management for applications deployed within Minikube.
 Deploying the "Hello World" Application
 
 Application Setup: Deploy a simple "Hello World" application using a Deployment and Service. This demonstrates how to expose applications within the cluster.
 Ingress Configuration: Define an Ingress resource to route external requests to the "Hello World" service, showcasing domain-based access to internal services.
-TLS Implementation
-Certificate Generation: Utilize Ansible to generate a self-signed SSL certificate, highlighting how to secure communication to the cluster.
+
+TLS Implementation Certificate Generation: Utilize Ansible to generate a self-signed SSL certificate, highlighting how to secure communication to the cluster.
+
 Secret Creation: Create a Kubernetes Secret to store the SSL certificate and key, demonstrating secure certificate management within Kubernetes.
 Ingress 
 
