@@ -1,0 +1,74 @@
+---
+- name: Deploy Nginx Ingress Controller, Hello World Application, and Implement TLS
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Install Nginx Ingress Controller using Helm"
+      community.kubernetes.helm:
+        name: nginx-ingress
+        chart_ref: ingress-nginx/ingress-nginx
+        release_namespace: kube-system
+        create_namespace: true
+      retries: 3
+      delay: 10
+      register: nginx_ingress
+      until: nginx_ingress is succeeded
+
+    - name: "Deploy Hello World Application"
+      community.kubernetes.k8s:
+        state: present
+        definition: "{{ lookup('file', item) }}"
+      loop:
+        - hello-world-deployment.yaml
+        - hello-world-service.yaml
+      retries: 3
+      delay: 10
+      register: hello_world_app
+      until: hello_world_app is succeeded
+
+    - name: Generate a self-signed SSL certificate and key
+      ansible.builtin.command:
+        cmd: openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -subj "/CN=hello-world.local" -keyout /tmp/tls.key -out /tmp/tls.crt
+      delegate_to: localhost
+      args:
+        creates: /tmp/tls.crt
+
+    - name: "Create a Kubernetes secret for the SSL certificate"
+      community.kubernetes.k8s:
+        state: present
+        namespace: default
+        kind: Secret
+        name: hello-world-tls
+        resource_definition:
+          data:
+            tls.crt: "{{ lookup('file', '/tmp/tls.crt') | b64encode }}"
+            tls.key: "{{ lookup('file', '/tmp/tls.key') | b64encode }}"
+        api_version: v1
+
+    - name: "Deploy Ingress with TLS termination"
+      community.kubernetes.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: hello-world-ingress
+            namespace: default
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /
+          spec:
+            tls:
+              - hosts:
+                  - "hello-world.local"
+                secretName: hello-world-tls
+            rules:
+              - host: "hello-world.local"
+                http:
+                  paths:
+                    - path: /hello
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: hello-world-service
+                          port:
+                            number: 80
