@@ -1,6 +1,7 @@
 # minikube-assignment
 
 Kubernetes Deployment on Minikube with Nginx Ingress and TLS
+
 This guide walks through the process of setting up a Minikube Kubernetes cluster on an Azure Ubuntu VM, deploying an Nginx Ingress Controller, a sample "Hello World" application, and securing it with a self-signed TLS certificate.
 
 Overview
