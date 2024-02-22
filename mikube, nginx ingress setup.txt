@@ -1,0 +1,231 @@
+SETTING UP MINIKUBE CLUSTER:
+
+
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install curl -y
+
+sudo apt install docker.io -y
+sudo systemctl start docker
+sudo systemctl enable docker
+
+sudo usermod -aG docker $USER
+
+restart
+
+curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
+chmod +x ./kubectl
+sudo mv ./kubectl /usr/local/bin/kubectl
+
+
+curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+chmod +x minikube
+sudo mv minikube /usr/local/bin/
+------------------------------------------------------------------------------------------------
+NGINX INGRESS CONTROLLER SETUP WITH HELM AND SAMPLE WEB DEPLOYMENT:
+minikube addons enable ingress
+
+curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 get_helm.sh
+./get_helm.sh
+
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+
+kubectl delete ingressclass nginx(preset ingress causing problem in helm installation)
+helm install nginx-ingress ingress-nginx/ingress-nginx --set controller.publishService.enabled=true
+
+kubectl create deployment web --image=nginx
+kubectl expose deployment web --type=NodePort --port=80
+
+vi nginx-ingress.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /hello
+        pathType: Prefix
+        backend:
+          service:
+            name: web
+            port:
+              number: 80
+
+kubectl apply -f nginx-ingress.yaml
+minikube ip
+
+-----------------------------------------------------------------------------------
+
+KUBERNETS SAMPLE APPLICATION DEPLOY:
+
+vi hello-world-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      containers:
+      - name: hello-world
+        image: nginxdemos/hello
+        ports:
+        - containerPort: 80
+
+kubectl apply -f hello-world-deployment.yaml
+
+vi hello-world-servivce.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-world-service
+spec:
+  type: NodePort
+  selector:
+    app: hello-world
+  ports:
+    - port: 80
+      targetPort: 80
+
+kubectl apply -f hello-world-service.yaml
+
+vi hello-world-ingress.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-world-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /hello
+        pathType: Prefix
+        backend:
+          service:
+            name: hello-world-service
+            port:
+              number: 80
+
+kubectl apply -f hello-world-ingress.yaml
+
+minikube ip
+
+curl -k http://ip:nodeport or curl -k http://ip/hello
+
+---------------------------------------------------------------
+
+ANSIBLE AUTOMATION FOR ALL THE ABOVE STEPS:
+
+sudo apt update
+sudo apt install software-properties-common
+sudo add-apt-repository --yes --update ppa:ansible/ansible
+sudo apt install ansible 
+ansible --version
+
+sudo apt install python3-pip
+
+vi deploy-app-paybook.yaml
+
+---
+- name: Deploy Nginx Ingress Controller, Hello World Application, and Implement TLS
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Install Nginx Ingress Controller using Helm"
+      community.kubernetes.helm:
+        name: nginx-ingress
+        chart_ref: ingress-nginx/ingress-nginx
+        release_namespace: kube-system
+        create_namespace: true
+      retries: 3
+      delay: 10
+      register: nginx_ingress
+      until: nginx_ingress is succeeded
+
+    - name: "Deploy Hello World Application"
+      community.kubernetes.k8s:
+        state: present
+        definition: "{{ lookup('file', item) }}"
+      loop:
+        - hello-world-deployment.yaml
+        - hello-world-service.yaml
+      retries: 3
+      delay: 10
+      register: hello_world_app
+      until: hello_world_app is succeeded
+
+    - name: Generate a self-signed SSL certificate and key
+      ansible.builtin.command:
+        cmd: openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 -subj "/CN=hello-world.local" -keyout /tmp/tls.key -out /tmp/tls.crt
+      delegate_to: localhost
+      args:
+        creates: /tmp/tls.crt
+
+    - name: "Create a Kubernetes secret for the SSL certificate"
+      community.kubernetes.k8s:
+        state: present
+        namespace: default
+        kind: Secret
+        name: hello-world-tls
+        resource_definition:
+          data:
+            tls.crt: "{{ lookup('file', '/tmp/tls.crt') | b64encode }}"
+            tls.key: "{{ lookup('file', '/tmp/tls.key') | b64encode }}"
+        api_version: v1
+
+    - name: "Deploy Ingress with TLS termination"
+      community.kubernetes.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: hello-world-ingress
+            namespace: default
+            annotations:
+              nginx.ingress.kubernetes.io/rewrite-target: /
+          spec:
+            tls:
+              - hosts:
+                  - "hello-world.local"
+                secretName: hello-world-tls
+            rules:
+              - host: "hello-world.local"
+                http:
+                  paths:
+                    - path: /hello
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: hello-world-service
+                          port:
+                            number: 80
+
+
+ansible-playbook deploy-app-playbook.yml
+
+modify your /etc/hosts file to resolve hello-world.local to the IP address of your Minikube cluster.
+
+curl -k https://hello-world.local/hello
+
+
