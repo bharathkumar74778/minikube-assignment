@@ -18,6 +18,7 @@ TLS Implementation:
 Generating a self-signed SSL certificate and applying it to the Ingress to secure traffic.
 
 Prerequisites
+
 An Azure account with an Ubuntu VM.
 Minikube installed on the Ubuntu VM.
 Helm installed for deploying the Nginx Ingress Controller.
